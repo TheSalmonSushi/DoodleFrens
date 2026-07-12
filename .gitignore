@@ -1,0 +1,24 @@
+# Gradle and build files
+.gradle/
+build/
+app/build/
+.kotlin/
+
+# IDE files
+.idea/
+*.iml
+*.iws
+.DS_Store
+
+# Local configuration (SENSITIVE - Contains API Keys)
+local.properties
+
+# Secrets
+.secrets
+secrets.xml
+
+# Log files
+*.log
+
+# Mobile Dev specifics
+captures/
