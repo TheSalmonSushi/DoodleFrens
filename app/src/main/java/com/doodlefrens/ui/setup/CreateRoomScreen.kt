@@ -47,8 +47,8 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.doodlefrens.R
 import com.doodlefrens.data.remote.ws.Room
-import com.doodlefren.util.Constants.MAX_ROOM_NAME_LENGTH
-import com.doodlefren.util.Constants.MIN_ROOM_NAME_LENGTH
+import com.doodlefrens.util.Constants.MAX_ROOM_NAME_LENGTH
+import com.doodlefrens.util.Constants.MIN_ROOM_NAME_LENGTH
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

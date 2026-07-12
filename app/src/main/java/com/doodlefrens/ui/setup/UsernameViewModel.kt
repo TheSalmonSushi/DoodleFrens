@@ -3,8 +3,8 @@ package com.doodlefrens.ui.setup
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.doodlefrens.repository.SetupRepository
-import com.doodlefren.util.Constants.MAX_USERNAME_LENGTH
-import com.doodlefren.util.Constants.MIN_USERNAME_LENGTH
+import com.doodlefrens.util.Constants.MAX_USERNAME_LENGTH
+import com.doodlefrens.util.Constants.MIN_USERNAME_LENGTH
 import com.doodlefrens.util.DispatcherProvider
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.channels.BufferOverflow
