@@ -50,7 +50,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.doodlefrens.R
 import com.doodlefrens.data.remote.ws.Room
-import com.doodlefren.util.Constants.SEARCH_DELAY
+import com.doodlefrens.util.Constants.SEARCH_DELAY
 import kotlinx.coroutines.delay
 import kotlin.time.Duration.Companion.milliseconds
 

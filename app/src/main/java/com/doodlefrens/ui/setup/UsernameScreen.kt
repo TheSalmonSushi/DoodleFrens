@@ -37,8 +37,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.doodlefrens.R
-import com.doodlefren.util.Constants.MAX_USERNAME_LENGTH
-import com.doodlefren.util.Constants.MIN_USERNAME_LENGTH
+import com.doodlefrens.util.Constants.MAX_USERNAME_LENGTH
+import com.doodlefrens.util.Constants.MIN_USERNAME_LENGTH
 
 @Composable
 fun UsernameScreen(

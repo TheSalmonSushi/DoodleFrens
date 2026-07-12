@@ -4,8 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.doodlefrens.data.remote.ws.Room
 import com.doodlefrens.repository.SetupRepository
-import com.doodlefren.util.Constants.MAX_ROOM_NAME_LENGTH
-import com.doodlefren.util.Constants.MIN_ROOM_NAME_LENGTH
+import com.doodlefrens.util.Constants.MAX_ROOM_NAME_LENGTH
+import com.doodlefrens.util.Constants.MIN_ROOM_NAME_LENGTH
 import com.doodlefrens.util.DispatcherProvider
 import com.doodlefrens.util.Resource
 import dagger.hilt.android.lifecycle.HiltViewModel

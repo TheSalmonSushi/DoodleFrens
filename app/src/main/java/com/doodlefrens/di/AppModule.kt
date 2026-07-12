@@ -2,10 +2,12 @@ package com.doodlefrens.di
 
 import android.content.Context
 import com.doodlefrens.data.remote.api.SetupApi
+import com.doodlefrens.data.remote.ws.DrawingApi
+import com.doodlefrens.data.remote.ws.KtorDrawingApi
 import com.doodlefrens.repository.SetupRepository
 import com.doodlefrens.repository.SetupRepositoryImpl
-import com.doodlefren.util.Constants
-import com.doodlefren.util.Constants.USE_LOCALHOST
+import com.doodlefrens.util.Constants
+import com.doodlefrens.util.Constants.USE_LOCALHOST
 import com.doodlefrens.util.DispatcherProvider
 import com.doodlefrens.util.clientId
 import com.doodlefrens.util.dataStore
@@ -15,13 +17,22 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.okhttp.OkHttp
+import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.client.plugins.logging.LogLevel
+import io.ktor.client.plugins.logging.Logging
+import io.ktor.client.plugins.websocket.WebSockets
+import io.ktor.serialization.kotlinx.KotlinxWebsocketSerializationConverter
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import javax.inject.Named
 import javax.inject.Singleton
 
 @Module
@@ -37,7 +48,14 @@ object AppModule {
 
     @Singleton
     @Provides
-    fun provideOkHttpClient(clientId: String): OkHttpClient {
+    @Named("clientId")
+    fun provideClientId(@ApplicationContext context: Context): String {
+        return runBlocking { context.dataStore.clientId() }
+    }
+
+    @Singleton
+    @Provides
+    fun provideOkHttpClient(@Named("clientId") clientId: String): OkHttpClient {
         return OkHttpClient.Builder()
             .addInterceptor { chain ->
                 val url = chain.request().url.newBuilder()
@@ -52,12 +70,6 @@ object AppModule {
                 level = HttpLoggingInterceptor.Level.BODY
             })
             .build()
-    }
-
-    @Singleton
-    @Provides
-    fun provideClientId(@ApplicationContext context: Context): String {
-        return runBlocking { context.dataStore.clientId() }
     }
 
     @Singleton
@@ -81,6 +93,45 @@ object AppModule {
     @Provides
     fun provideGsonInstance(): Gson {
         return Gson()
+    }
+
+    @Singleton
+    @Provides
+    fun provideKotlinxJson(): Json {
+        return Json {
+            ignoreUnknownKeys = true
+            isLenient = true
+            classDiscriminator = "type"
+        }
+    }
+
+    @Singleton
+    @Provides
+    fun provideHttpClient(json: Json, okHttpClient: OkHttpClient): HttpClient {
+        return HttpClient(OkHttp) {
+            engine {
+                preconfigured = okHttpClient
+            }
+            install(Logging) {
+                level = LogLevel.ALL
+            }
+            install(WebSockets) {
+                contentConverter = KotlinxWebsocketSerializationConverter(json)
+            }
+        }
+    }
+
+    @Singleton
+    @Provides
+    fun provideDrawingApi(
+        client: HttpClient,
+        json: Json
+    ): DrawingApi {
+        return KtorDrawingApi(
+            client = client,
+            json = json,
+            baseUrl = if (USE_LOCALHOST) Constants.WS_BASE_URL_LOCALHOST else Constants.WS_BASE_URL
+        )
     }
 
     @Singleton
