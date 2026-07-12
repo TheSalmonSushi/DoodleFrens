@@ -22,3 +22,5 @@ secrets.xml
 
 # Mobile Dev specifics
 captures/
+/.agents/
+/.docs/
