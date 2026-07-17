@@ -1,6 +1,8 @@
 package com.doodlefrens.ui.drawing
 
+import android.view.MotionEvent
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.ink.strokes.Stroke
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
@@ -9,6 +11,7 @@ import com.doodlefrens.data.remote.ws.DrawingApi
 import com.doodlefrens.data.remote.ws.models.*
 import com.doodlefrens.data.remote.ws.models.DrawAction.Companion.ACTION_UNDO
 import com.doodlefrens.ui.state.DrawingUiState
+import com.doodlefrens.ui.state.RemotePathData
 import com.doodlefrens.util.DispatcherProvider
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.channels.Channel
@@ -36,10 +39,8 @@ class DrawingViewModel @Inject constructor(
         data class ChatMessageEvent(val data: ChatMessage) : SocketEvent()
         data class AnnouncementEvent(val data: Announcement) : SocketEvent()
         data class GameStateEvent(val data: GameState) : SocketEvent()
-        data class DrawDataEvent(val data: DrawData) : SocketEvent()
         data class NewWordsEvent(val data: NewWords) : SocketEvent()
         data class GameErrorEvent(val data: GameError) : SocketEvent()
-        data object UndoEvent : SocketEvent()
     }
 
     private val _uiState = MutableStateFlow(DrawingUiState())
@@ -68,14 +69,14 @@ class DrawingViewModel @Inject constructor(
             .onEach { event ->
                 when (event) {
                     is DrawingApi.WebSocketEvent.OnConnectionOpened -> {
-                        _uiState.update { it.copy(isConnected = true, connectionError = null) }
+                        _uiState.update { it.copy(isConnected = true, connectionError = null, isConnecting = false) }
                         sendBaseModel(JoinRoomHandshake(username, roomName, clientId))
                     }
                     is DrawingApi.WebSocketEvent.OnConnectionError -> {
-                        _uiState.update { it.copy(isConnected = false, connectionError = event.error.message) }
+                        _uiState.update { it.copy(isConnected = false, connectionError = event.error.message, isConnecting = false) }
                     }
                     is DrawingApi.WebSocketEvent.OnConnectionClosed -> {
-                        _uiState.update { it.copy(isConnected = false) }
+                        _uiState.update { it.copy(isConnected = false, isConnecting = false) }
                     }
                 }
             }
@@ -87,11 +88,48 @@ class DrawingViewModel @Inject constructor(
             .onEach { data ->
                 when (data) {
                     is DrawData -> {
-                        socketEventChannel.send(SocketEvent.DrawDataEvent(data))
+                        _uiState.update { state ->
+                            var newRemoteStrokes = state.remoteStrokes
+                            var newCurrentRemotePath = state.currentRemotePath
+
+                            when (data.motionEvent) {
+                                MotionEvent.ACTION_DOWN -> {
+                                    val path = Path().apply {
+                                        // We need the canvas size to normalize, but the VM doesn't know it yet.
+                                        // This is a problem. The normalization should happen in the UI
+                                        // OR the VM should receive normalized coordinates and the UI applies them.
+                                        // The DrawData ALREADY has normalized coordinates (0..1).
+                                        // So we just need to keep them as 0..1 and scale in the UI.
+                                        moveTo(data.fromX, data.fromY)
+                                    }
+                                    newCurrentRemotePath = RemotePathData(path, Color(data.color), data.thickness)
+                                }
+                                MotionEvent.ACTION_MOVE -> {
+                                    newCurrentRemotePath?.path?.lineTo(data.toX, data.toY)
+                                }
+                                MotionEvent.ACTION_UP -> {
+                                    newCurrentRemotePath?.let {
+                                        newRemoteStrokes = newRemoteStrokes + it
+                                    }
+                                    newCurrentRemotePath = null
+                                }
+                            }
+                            state.copy(
+                                remoteStrokes = newRemoteStrokes,
+                                currentRemotePath = newCurrentRemotePath
+                            )
+                        }
                     }
                     is DrawAction -> {
                         when (data.action) {
-                            ACTION_UNDO -> socketEventChannel.send(SocketEvent.UndoEvent)
+                            ACTION_UNDO -> {
+                                _uiState.update { it.copy(
+                                    remoteStrokes = if (it.remoteStrokes.isNotEmpty()) it.remoteStrokes.dropLast(1) else it.remoteStrokes
+                                ) }
+                            }
+                            DrawAction.ACTION_CLEAR -> {
+                                _uiState.update { it.copy(remoteStrokes = emptyList(), strokes = emptyList()) }
+                            }
                         }
                     }
                     is ChatMessage -> {
@@ -103,14 +141,25 @@ class DrawingViewModel @Inject constructor(
                         socketEventChannel.send(SocketEvent.AnnouncementEvent(data))
                     }
                     is GameState -> {
-                        _uiState.update { it.copy(drawingPlayer = data.drawingPlayer, word = data.word) }
+                        _uiState.update { it.copy(
+                            drawingPlayer = data.drawingPlayer,
+                            word = data.word,
+                            isUserDrawing = data.drawingPlayer == username
+                            )
+                        }
                         socketEventChannel.send(SocketEvent.GameStateEvent(data))
                     }
                     is PlayersList -> {
                         _uiState.update { it.copy(players = data.players) }
                     }
                     is PhaseChange -> {
-                        _uiState.update { it.copy(phase = data.phase, time = data.time, drawingPlayer = data.drawingPlayer) }
+                        _uiState.update { it.copy(
+                            phase = data.phase,
+                            time = data.time,
+                            drawingPlayer = data.drawingPlayer,
+                            isUserDrawing = data.drawingPlayer == username
+                            )
+                        }
                     }
                     is NewWords -> {
                         _uiState.update { it.copy(newWords = data.newWords) }
@@ -133,12 +182,23 @@ class DrawingViewModel @Inject constructor(
         }
     }
 
+    fun sendDrawData(drawData: DrawData) {
+        viewModelScope.launch(dispatchers.io) {
+            drawingApi.sendBaseModel(drawData)
+        }
+    }
+
     fun selectColor(color: Color) {
         _uiState.update { it.copy(selectedColor = color, isEraser = false) }
     }
 
     fun selectEraser() {
         _uiState.update { it.copy(isEraser = true) }
+    }
+
+    fun chooseWord(word: String) {
+        sendBaseModel(ChosenWord(word, roomName))
+        _uiState.update { it.copy(newWords = emptyList()) }
     }
 
     fun addStrokes(newStrokes: List<Stroke>) {
@@ -156,6 +216,7 @@ class DrawingViewModel @Inject constructor(
 
     fun clear() {
         _uiState.update { it.copy(strokes = emptyList()) }
+        sendBaseModel(DrawAction(DrawAction.ACTION_CLEAR))
     }
 
     override fun onCleared() {

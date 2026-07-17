@@ -11,5 +11,6 @@ data class DrawAction(
 ) : BaseModel() {
     companion object {
         const val ACTION_UNDO = "ACTION_UNDO"
+        const val ACTION_CLEAR = "ACTION_CLEAR"
     }
 }

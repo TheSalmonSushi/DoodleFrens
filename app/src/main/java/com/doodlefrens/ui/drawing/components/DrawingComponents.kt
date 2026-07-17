@@ -321,7 +321,10 @@ fun MessageInput(
 }
 
 @Composable
-fun ChooseWordOverlay() {
+fun ChooseWordOverlay(
+    words: List<String>,
+    onWordClicked: (String) -> Unit
+) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -342,12 +345,16 @@ fun ChooseWordOverlay() {
                 textAlign = TextAlign.Center
             )
             Spacer(modifier = Modifier.height(32.dp))
-            Button(onClick = { }, modifier = Modifier.width(200.dp)) { Text("First Word") }
-            Spacer(modifier = Modifier.height(8.dp))
-            Button(onClick = { }, modifier = Modifier.width(200.dp)) { Text("Second Word") }
-            Spacer(modifier = Modifier.height(8.dp))
-            Button(onClick = { }, modifier = Modifier.width(200.dp)) { Text("Third Word") }
-            Spacer(modifier = Modifier.height(32.dp))
+            words.forEach { word ->
+                Button(
+                    onClick = { onWordClicked(word) },
+                    modifier = Modifier.width(200.dp)
+                ) {
+                    Text(word)
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+            Spacer(modifier = Modifier.height(24.dp))
             Text(
                 text = "30",
                 style = MaterialTheme.typography.displayLarge,
