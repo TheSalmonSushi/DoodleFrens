@@ -19,5 +19,9 @@ data class DrawingUiState(
     val word: String? = null,
     val newWords: List<String> = emptyList(),
     val connectionError: String? = null,
-    val isConnected: Boolean = false
+    val isConnected: Boolean = false,
+    val isConnecting: Boolean = true,
+    val isUserDrawing: Boolean = false,
+    val remoteStrokes: List<RemotePathData> = emptyList(),
+    val currentRemotePath: RemotePathData? = null
 )

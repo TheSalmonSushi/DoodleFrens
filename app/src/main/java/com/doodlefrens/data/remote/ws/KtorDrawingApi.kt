@@ -39,8 +39,9 @@ class KtorDrawingApi @Inject constructor(
 
     override suspend fun connect() {
         try {
+            val url = baseUrl.removeSuffix("/") + "/ws/draw"
             session = client.webSocketSession {
-                url("$baseUrl/ws/draw")
+                url(url.replace("https://", "wss://").replace("http://", "ws://"))
             }
             _events.emit(DrawingApi.WebSocketEvent.OnConnectionOpened)
             observeIncoming()

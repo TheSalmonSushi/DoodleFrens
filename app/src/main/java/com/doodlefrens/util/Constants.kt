@@ -9,7 +9,7 @@ object Constants {
     const val HTTP_BASE_URL = BuildConfig.HTTP_BASE_URL
     const val HTTP_BASE_URL_LOCALHOST = BuildConfig.HTTP_BASE_URL_LOCALHOST
 
-    const val WS_BASE_URL = BuildConfig.HTTP_BASE_URL
+    const val WS_BASE_URL = BuildConfig.WS_DRAW_BASE_URL
     const val WS_BASE_URL_LOCALHOST = BuildConfig.HTTP_BASE_URL_LOCALHOST
 
     const val MIN_USERNAME_LENGTH = 4

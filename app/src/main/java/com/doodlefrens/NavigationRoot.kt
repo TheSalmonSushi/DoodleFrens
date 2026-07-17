@@ -24,7 +24,13 @@ fun NavigationRoot(
         composable(route = "drawing/{username}/{roomName}") { backStackEntry ->
             val username = backStackEntry.arguments?.getString("username") ?: ""
             val roomName = backStackEntry.arguments?.getString("roomName") ?: ""
-            DrawingScreen(username = username, roomName = roomName)
+            DrawingScreen(
+                username = username,
+                roomName = roomName,
+                onNavigateBack = {
+                    navController.popBackStack()
+                }
+            )
         }
     }
 }
