@@ -24,6 +24,8 @@ import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.Stroke as DrawStroke
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerId
 import androidx.compose.ui.input.pointer.changedToDown
@@ -34,6 +36,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.ink.authoring.compose.InProgressStrokes
 import androidx.ink.brush.Brush
@@ -304,6 +307,19 @@ fun DrawingScreen(
                             .height(8.dp)
                     )
 
+                    if (!uiState.word.isNullOrEmpty()) {
+                        Text(
+                            text = uiState.word!!,
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier
+                                .align(Alignment.CenterHorizontally)
+                                .padding(top = 8.dp)
+                                .background(Color.White.copy(alpha = 0.8f), shape = RoundedCornerShape(8.dp))
+                                .padding(horizontal = 16.dp, vertical = 8.dp)
+                        )
+                    }
+
                     Surface(
                         color = Color.Transparent,
                         modifier = Modifier.fillMaxWidth()
@@ -319,11 +335,17 @@ fun DrawingScreen(
                                 onEraserSelected = viewModel::selectEraser,
                                 modifier = Modifier.weight(1f)
                             )
-                            IconButton(onClick = viewModel::undo) {
-                                Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo", tint = Color.Black)
+                            IconButton(
+                                onClick = viewModel::undo,
+                                enabled = uiState.isUserDrawing
+                            ) {
+                                Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo", tint = if (uiState.isUserDrawing) Color.Black else Color.Gray)
                             }
-                            IconButton(onClick = viewModel::clear) {
-                                Icon(Icons.Default.Delete, contentDescription = "Clear", tint = Color.Black)
+                            IconButton(
+                                onClick = viewModel::clear,
+                                enabled = uiState.isUserDrawing
+                            ) {
+                                Icon(Icons.Default.Delete, contentDescription = "Clear", tint = if (uiState.isUserDrawing) Color.Black else Color.Gray)
                             }
                         }
                     }

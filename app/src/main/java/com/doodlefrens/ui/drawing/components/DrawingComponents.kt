@@ -9,7 +9,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -17,6 +18,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.doodlefrens.designsystem.components.Black
@@ -32,7 +37,7 @@ import com.doodlefrens.data.remote.ws.models.Announcement
 import com.doodlefrens.data.remote.ws.models.BaseModel
 import com.doodlefrens.data.remote.ws.models.ChatMessage
 import java.text.SimpleDateFormat
-import java.util.Locale
+import androidx.compose.ui.platform.LocalLocale
 
 @Composable
 fun AnnouncementItem(
@@ -210,7 +215,7 @@ fun ChatSection(
     onSendMessage: () -> Unit,
     onClose: () -> Unit
 ) {
-    Column(modifier = Modifier.fillMaxSize()) {
+    Column(modifier = Modifier.fillMaxSize().imePadding()) {
         // Header with Close Button
         Row(
             modifier = Modifier.fillMaxWidth().padding(8.dp),
@@ -238,15 +243,30 @@ fun ChatSection(
             fontWeight = FontWeight.Bold
         )
 
+        val listState = rememberLazyListState()
+        val isAtBottom by remember {
+            derivedStateOf {
+                val lastVisibleItem = listState.layoutInfo.visibleItemsInfo.lastOrNull()
+                lastVisibleItem == null || lastVisibleItem.index >= listState.layoutInfo.totalItemsCount - 2
+            }
+        }
+
+        LaunchedEffect(messages.size) {
+            if (messages.isNotEmpty() && isAtBottom) {
+                listState.animateScrollToItem(messages.size - 1)
+            }
+        }
+
         // Chat List
         LazyColumn(
+            state = listState,
             modifier = Modifier.weight(1f),
             contentPadding = PaddingValues(8.dp)
         ) {
             items(messages.size) { index ->
                 val message = messages[index]
                 if (message is Announcement) {
-                    val dateFormat = SimpleDateFormat("kk:mm:ss", Locale.getDefault())
+                    val dateFormat = SimpleDateFormat("kk:mm:ss", LocalLocale.current.platformLocale)
                     val time = dateFormat.format(message.timestamp)
                     
                     val backgroundColor = when (message.announcementType) {
@@ -268,7 +288,7 @@ fun ChatSection(
                         textColor = textColor
                     )
                 } else if (message is ChatMessage) {
-                    val dateFormat = SimpleDateFormat("kk:mm:ss", Locale.getDefault())
+                    val dateFormat = SimpleDateFormat("kk:mm:ss", LocalLocale.current.platformLocale)
                     val time = dateFormat.format(message.timestamp)
                     val isOutgoing = message.from == username
 
@@ -340,6 +360,8 @@ fun MessageInput(
     onSendMessage: () -> Unit,
     onClearText: () -> Unit
 ) {
+    val keyboardController = LocalSoftwareKeyboardController.current
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -351,6 +373,15 @@ fun MessageInput(
             onValueChange = onMessageChange,
             modifier = Modifier.weight(1f),
             placeholder = { Text("Message") },
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+            keyboardActions = KeyboardActions(
+                onSend = {
+                    if (messageText.isNotBlank()) {
+                        onSendMessage()
+                        keyboardController?.hide()
+                    }
+                }
+            ),
             trailingIcon = {
                 if (messageText.isNotEmpty()) {
                     IconButton(onClick = onClearText) {
@@ -360,7 +391,12 @@ fun MessageInput(
             }
         )
         Spacer(modifier = Modifier.width(8.dp))
-        IconButton(onClick = { if (messageText.isNotBlank()) onSendMessage() }) {
+        IconButton(onClick = { 
+            if (messageText.isNotBlank()) {
+                onSendMessage()
+                keyboardController?.hide()
+            } 
+        }) {
             Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send")
         }
     }

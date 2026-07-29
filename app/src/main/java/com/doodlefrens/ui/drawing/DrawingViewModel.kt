@@ -40,6 +40,7 @@ class DrawingViewModel @Inject constructor(
         data class AnnouncementEvent(val data: Announcement) : SocketEvent()
         data class GameStateEvent(val data: GameState) : SocketEvent()
         data class NewWordsEvent(val data: NewWords) : SocketEvent()
+        data class ChosenWordEvent(val data: ChosenWord) : SocketEvent()
         data class GameErrorEvent(val data: GameError) : SocketEvent()
     }
 
@@ -206,6 +207,10 @@ class DrawingViewModel @Inject constructor(
                     is NewWords -> {
                         _uiState.update { it.copy(newWords = data.newWords) }
                         socketEventChannel.send(SocketEvent.NewWordsEvent(data))
+                    }
+                    is ChosenWord -> {
+                        _uiState.update { it.copy(word = data.chosenWord) }
+                        socketEventChannel.send(SocketEvent.ChosenWordEvent(data))
                     }
                     is Ping -> sendBaseModel(Ping())
                     is GameError -> {

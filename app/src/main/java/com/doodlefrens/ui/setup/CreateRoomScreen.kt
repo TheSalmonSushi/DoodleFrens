@@ -42,8 +42,12 @@ import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.res.stringArrayResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.doodlefrens.R
 import com.doodlefrens.data.remote.ws.Room
@@ -68,6 +72,8 @@ fun CreateRoomScreen(
     val errorEmpty = stringResource(R.string.error_field_empty)
     val errorTooShort = stringResource(R.string.error_room_name_too_short, MIN_ROOM_NAME_LENGTH)
     val errorTooLong = stringResource(R.string.error_room_name_too_long, MAX_ROOM_NAME_LENGTH)
+    
+    val keyboardController = LocalSoftwareKeyboardController.current
 
     LaunchedEffect(key1 = true) {
         viewModel.setupEvent.collect { event ->
@@ -144,6 +150,14 @@ fun CreateRoomScreen(
                     },
                     label = { Text(stringResource(R.string.room_name)) },
                     singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(
+                        onDone = {
+                            keyboardController?.hide()
+                            isLoading = true
+                            viewModel.createRoom(Room(roomName, maxPlayers))
+                        }
+                    ),
                     modifier = Modifier.fillMaxWidth()
                 )
 
@@ -187,6 +201,7 @@ fun CreateRoomScreen(
 
                     Button(
                         onClick = {
+                            keyboardController?.hide()
                             isLoading = true
                             viewModel.createRoom(Room(roomName, maxPlayers))
                         },
