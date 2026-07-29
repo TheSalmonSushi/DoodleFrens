@@ -126,9 +126,15 @@ fun DrawingScreen(
                         scope.launch { drawerState.close() }
                     })
                     DrawingDrawerContent.CHAT -> ChatSection(
+                        username = username,
                         roomName = roomName,
+                        messages = uiState.messages,
                         messageText = messageText,
                         onMessageChange = { messageText = it },
+                        onSendMessage = {
+                            viewModel.sendMessage(messageText)
+                            messageText = ""
+                        },
                         onClose = { scope.launch { drawerState.close() } }
                     )
                     else -> Unit
@@ -314,10 +320,10 @@ fun DrawingScreen(
                                 modifier = Modifier.weight(1f)
                             )
                             IconButton(onClick = viewModel::undo) {
-                                Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo")
+                                Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo", tint = Color.Black)
                             }
                             IconButton(onClick = viewModel::clear) {
-                                Icon(Icons.Default.Delete, contentDescription = "Clear")
+                                Icon(Icons.Default.Delete, contentDescription = "Clear", tint = Color.Black)
                             }
                         }
                     }
@@ -341,11 +347,12 @@ fun DrawingScreen(
                                 }) {
                                     Icon(
                                         if (currentDrawerContent == DrawingDrawerContent.PLAYERS) Icons.Default.Person else Icons.Default.PersonOutline,
-                                        contentDescription = "Players"
+                                        contentDescription = "Players",
+                                        tint = Color.Black
                                     )
                                 }
                                 IconButton(onClick = { /* Toggle Mic */ }) {
-                                    Icon(Icons.Default.MicOff, contentDescription = "Mic")
+                                    Icon(Icons.Default.MicOff, contentDescription = "Mic", tint = Color.Black)
                                 }
                                 IconButton(onClick = { 
                                     currentDrawerContent = DrawingDrawerContent.CHAT
@@ -353,7 +360,8 @@ fun DrawingScreen(
                                 }) {
                                     Icon(
                                         if (currentDrawerContent == DrawingDrawerContent.CHAT) Icons.Default.ChatBubble else Icons.Default.ChatBubbleOutline,
-                                        contentDescription = "Chat"
+                                        contentDescription = "Chat",
+                                        tint = Color.Black
                                     )
                                 }
                             }
