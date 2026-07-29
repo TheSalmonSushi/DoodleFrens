@@ -33,8 +33,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.doodlefrens.R
 import com.doodlefrens.util.Constants.MAX_USERNAME_LENGTH
@@ -50,6 +54,8 @@ fun UsernameScreen(
     val errorFieldEmpty = stringResource(R.string.error_field_empty)
     val errorTooShort = stringResource(R.string.error_username_too_short, MIN_USERNAME_LENGTH)
     val errorTooLong = stringResource(R.string.error_username_too_long, MAX_USERNAME_LENGTH)
+    
+    val keyboardController = LocalSoftwareKeyboardController.current
 
     // Compose equivalent of lifecycleScope.launchWhenStarted { setupEvent.collect { ... } }
     LaunchedEffect(key1 = true) {
@@ -118,6 +124,13 @@ fun UsernameScreen(
                         },
                         label = { Text(stringResource(R.string.username)) },
                         singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(
+                            onDone = {
+                                keyboardController?.hide()
+                                viewModel.validateUsernameAndNavigateToSelectRoom(username)
+                            }
+                        ),
                         modifier = Modifier.fillMaxWidth()
                     )
 
@@ -125,6 +138,7 @@ fun UsernameScreen(
 
                     Button(
                         onClick = {
+                            keyboardController?.hide()
                             viewModel.validateUsernameAndNavigateToSelectRoom(username)
                         },
                         modifier = Modifier.align(Alignment.End)
