@@ -1,11 +1,12 @@
 package com.doodlefrens.ui.drawing
 
+import android.app.Activity
+import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.graphics.Matrix
 import android.view.MotionEvent
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Undo
@@ -14,7 +15,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
@@ -24,9 +24,14 @@ import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.Stroke as DrawStroke
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerId
+import androidx.compose.ui.input.pointer.changedToDown
+import androidx.compose.ui.input.pointer.changedToUp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -41,7 +46,6 @@ import com.doodlefrens.ui.drawing.components.ChatSection
 import com.doodlefrens.ui.drawing.components.ChooseWordOverlay
 import com.doodlefrens.ui.drawing.components.ColorPicker
 import com.doodlefrens.ui.drawing.components.PlayersSection
-import com.doodlefrens.ui.state.RemotePathData
 import kotlinx.coroutines.launch
 
 enum class DrawingDrawerContent {
@@ -60,6 +64,21 @@ fun DrawingScreen(
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     val snackbarHostState = remember { SnackbarHostState() }
+    val context = LocalContext.current
+
+    // Adaptive UI: Tablet vs Phone Detection
+    val isTablet = configuration.smallestScreenWidthDp >= 600
+    val thicknessMultiplier = if (isTablet) 1.25f else 1.0f
+
+    // Lock orientation to landscape for drawing
+    DisposableEffect(Unit) {
+        val activity = context as? Activity
+        val originalOrientation = activity?.requestedOrientation ?: ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+        onDispose {
+            activity?.requestedOrientation = originalOrientation
+        }
+    }
 
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
@@ -131,95 +150,114 @@ fun DrawingScreen(
                         .fillMaxSize()
                         .background(White)
                         .onSizeChanged { canvasSize = it }
-                        .pointerInput(uiState.isUserDrawing, uiState.selectedColor, uiState.isEraser) {
-                            if (!uiState.isUserDrawing) return@pointerInput
-                            detectDragGestures(
-                                onDragStart = { offset ->
-                                    viewModel.sendDrawData(
-                                        DrawData(
-                                            roomName = roomName,
-                                            color = (if (uiState.isEraser) Color.White else uiState.selectedColor).toArgb(),
-                                            thickness = (if (uiState.isEraser) 50f else 10f) / canvasSize.width,
-                                            fromX = offset.x / canvasSize.width,
-                                            fromY = offset.y / canvasSize.height,
-                                            toX = offset.x / canvasSize.width,
-                                            toY = offset.y / canvasSize.height,
-                                            motionEvent = MotionEvent.ACTION_DOWN
-                                        )
-                                    )
-                                },
-                                onDrag = { change, _ ->
-                                    viewModel.sendDrawData(
-                                        DrawData(
-                                            roomName = roomName,
-                                            color = (if (uiState.isEraser) Color.White else uiState.selectedColor).toArgb(),
-                                            thickness = (if (uiState.isEraser) 50f else 10f) / canvasSize.width,
-                                            fromX = change.previousPosition.x / canvasSize.width,
-                                            fromY = change.previousPosition.y / canvasSize.height,
-                                            toX = change.position.x / canvasSize.width,
-                                            toY = change.position.y / canvasSize.height,
-                                            motionEvent = MotionEvent.ACTION_MOVE
-                                        )
-                                    )
-                                },
-                                onDragEnd = {
-                                    viewModel.sendDrawData(
-                                        DrawData(
-                                            roomName = roomName,
-                                            color = (if (uiState.isEraser) Color.White else uiState.selectedColor).toArgb(),
-                                            thickness = (if (uiState.isEraser) 50f else 10f) / canvasSize.width,
-                                            fromX = 0f,
-                                            fromY = 0f,
-                                            toX = 0f,
-                                            toY = 0f,
-                                            motionEvent = MotionEvent.ACTION_UP
-                                        )
-                                    )
+                        .pointerInput(uiState.isUserDrawing, uiState.drawingPlayer, canvasSize) {
+                            if (!uiState.isUserDrawing || canvasSize.width <= 0 || canvasSize.height <= 0) return@pointerInput
+                            
+                            awaitPointerEventScope {
+                                var activePointerId: PointerId? = null
+                                while (true) {
+                                    val event = awaitPointerEvent(PointerEventPass.Initial)
+
+                                    // 1. Assign a primary pointer if we don't have one
+                                    event.changes.forEach { change ->
+                                        if (activePointerId == null && change.changedToDown()) {
+                                            activePointerId = change.id
+                                        }
+                                    }
+                                    
+                                    // Store the ID active for this specific frame
+                                    val frameActiveId = activePointerId
+
+                                    event.changes.forEach { change ->
+                                        if (change.id == frameActiveId) {
+                                            val position = change.position
+                                            val prevPosition = change.previousPosition
+                                            
+                                            val drawData = DrawData(
+                                                roomName = roomName,
+                                                color = (if (uiState.isEraser) Color.White else uiState.selectedColor).toArgb(),
+                                                thickness = if (uiState.isEraser) 40f else 8f,
+                                                fromX = prevPosition.x / canvasSize.width,
+                                                fromY = prevPosition.y / canvasSize.height,
+                                                toX = position.x / canvasSize.width,
+                                                toY = position.y / canvasSize.height,
+                                                motionEvent = when {
+                                                    change.changedToDown() -> MotionEvent.ACTION_DOWN
+                                                    change.changedToUp() -> MotionEvent.ACTION_UP
+                                                    else -> MotionEvent.ACTION_MOVE
+                                                }
+                                            )
+                                            viewModel.sendDrawData(drawData)
+                                            
+                                            if (change.changedToUp()) {
+                                                activePointerId = null // Reset for next frame
+                                            }
+                                        }
+                                    }
+                                    
+                                    // SINGLE-FINGER ENFORCEMENT: Consume events from all
+                                    // non-primary pointers so InProgressStrokes (Main pass)
+                                    // only sees the one active finger (frameActiveId).
+                                    event.changes.forEach { change ->
+                                        if (change.id != frameActiveId) {
+                                            change.consume()
+                                        }
+                                    }
+                                    
+                                    // DEAD MAN'S SWITCH: Fallback safety check for missed UP events.
+                                    // If our active pointer is still in the event but no longer pressed,
+                                    // and forEach didn't already reset it (e.g., changedToUp wasn't triggered),
+                                    // force-reset to prevent the drawing from locking up.
+                                    if (activePointerId != null) {
+                                        val activeChange = event.changes.find { it.id == activePointerId }
+                                        if (activeChange != null && !activeChange.pressed) {
+                                            activePointerId = null
+                                        }
+                                    }
                                 }
-                            )
+                            }
                         }
                 ) {
                     val renderer = remember { CanvasStrokeRenderer.create() }
                     val identityMatrix = remember { Matrix() }
 
-                    // Render finished strokes (both local and theoretically remote if they were converted)
-                    Canvas(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .drawWithCache {
-                                onDrawWithContent {
-                                    drawIntoCanvas { canvas ->
-                                        uiState.strokes.forEach { stroke ->
-                                            renderer.draw(canvas.nativeCanvas, stroke, identityMatrix)
-                                        }
-                                    }
+                    // Render finished strokes (local)
+                    // We key the Canvas with the list size to force a recomposition on Undo/Add
+                    key(uiState.strokes.size) {
+                        Canvas(modifier = Modifier.fillMaxSize()) {
+                            drawIntoCanvas { canvas ->
+                                uiState.strokes.forEach { stroke ->
+                                    renderer.draw(canvas.nativeCanvas, stroke, identityMatrix)
                                 }
                             }
-                    ) {
-                        // Content is drawn via drawWithCache
+                        }
                     }
 
                     // Render remote drawing segments
                     Canvas(modifier = Modifier.fillMaxSize()) {
-                        if (canvasSize.width > 0 && canvasSize.height > 0) {
-                            scale(canvasSize.width.toFloat(), canvasSize.height.toFloat(), pivot = Offset.Zero) {
+                        if (size.width > 0 && size.height > 0) {
+                            scale(size.width, size.height, pivot = Offset.Zero) {
+                                // Draw finished remote strokes
                                 uiState.remoteStrokes.forEach { stroke ->
                                     drawPath(
                                         path = stroke.path,
                                         color = stroke.color,
                                         style = DrawStroke(
-                                            width = stroke.thickness,
+                                            // Ensure width is scaled correctly to be visible
+                                            width = (stroke.thickness * thicknessMultiplier) / size.width,
                                             cap = StrokeCap.Round,
                                             join = StrokeJoin.Round
                                         )
                                     )
                                 }
+                                
+                                // Draw the active/wet remote stroke dynamically
                                 uiState.currentRemotePath?.let { stroke ->
                                     drawPath(
                                         path = stroke.path,
                                         color = stroke.color,
                                         style = DrawStroke(
-                                            width = stroke.thickness,
+                                            width = (stroke.thickness * thicknessMultiplier) / size.width,
                                             cap = StrokeCap.Round,
                                             join = StrokeJoin.Round
                                         )
@@ -231,12 +269,14 @@ fun DrawingScreen(
 
                     // Handle in-progress strokes for the local user
                     if (uiState.isUserDrawing) {
-                        // We move the brush calculation to a stable state so it can be reliably read by the nextBrush lambda
+                        val baseSize = if (uiState.isEraser) 40f else 8f
+                        val adaptiveSize = baseSize * thicknessMultiplier
+                        
                         val latestBrush by rememberUpdatedState(
                             Brush.createWithColorIntArgb(
                                 family = if (uiState.isEraser) StockBrushes.marker() else StockBrushes.pressurePen(),
                                 colorIntArgb = (if (uiState.isEraser) Color.White else uiState.selectedColor).toArgb(),
-                                size = if (uiState.isEraser) 50f else 10f,
+                                size = adaptiveSize,
                                 epsilon = 0.1f
                             )
                         )
@@ -251,7 +291,6 @@ fun DrawingScreen(
 
                 // Layer 1: Floating Tools & Sidebar
                 Column(modifier = Modifier.fillMaxSize()) {
-                    // Timer Progress Bar (Full Width, Top)
                     LinearProgressIndicator(
                         progress = { 1f },
                         modifier = Modifier
@@ -259,7 +298,6 @@ fun DrawingScreen(
                             .height(8.dp)
                     )
 
-                    // Top Bar: Color Picker & Undo
                     Surface(
                         color = Color.Transparent,
                         modifier = Modifier.fillMaxWidth()
@@ -285,7 +323,6 @@ fun DrawingScreen(
                     }
 
                     Box(modifier = Modifier.weight(1f)) {
-                        // Left Sidebar: Actions
                         Surface(
                             color = Color.Transparent,
                             modifier = Modifier

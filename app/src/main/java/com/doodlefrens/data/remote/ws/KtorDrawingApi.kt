@@ -74,7 +74,7 @@ class KtorDrawingApi @Inject constructor(
 
     override suspend fun sendBaseModel(baseModel: BaseModel) {
         try {
-            val jsonString = json.encodeToString(baseModel)
+            val jsonString = json.encodeToString(BaseModel.serializer(), baseModel)
             session?.send(Frame.Text(jsonString))
         } catch (e: Exception) {
             Timber.e(e, "Failed to send message")

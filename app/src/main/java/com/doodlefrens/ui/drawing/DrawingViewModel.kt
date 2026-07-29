@@ -89,27 +89,60 @@ class DrawingViewModel @Inject constructor(
                 when (data) {
                     is DrawData -> {
                         _uiState.update { state ->
+                            // Echo suppression logic:
+                            // We only skip drawing incoming data if WE are the one who sent it.
+                            // We determine if we sent it based on the 'isUserDrawing' flag.
+                            // BUT, we only do this if a specific player is assigned to draw, 
+                            // or if we are using the 'test' override.
+                            if (state.isUserDrawing && state.drawingPlayer == username) {
+                                return@update state
+                            }
+
                             var newRemoteStrokes = state.remoteStrokes
                             var newCurrentRemotePath = state.currentRemotePath
 
                             when (data.motionEvent) {
+                                DrawData.MOTION_EVENT_UNDO -> {
+                                    // Hack: -1 means UNDO
+                                    newRemoteStrokes = if (newRemoteStrokes.isNotEmpty()) newRemoteStrokes.dropLast(1) else newRemoteStrokes
+                                }
+                                DrawData.MOTION_EVENT_CLEAR -> {
+                                    // Hack: -2 means CLEAR
+                                    newRemoteStrokes = emptyList()
+                                }
                                 MotionEvent.ACTION_DOWN -> {
                                     val path = Path().apply {
-                                        // We need the canvas size to normalize, but the VM doesn't know it yet.
-                                        // This is a problem. The normalization should happen in the UI
-                                        // OR the VM should receive normalized coordinates and the UI applies them.
-                                        // The DrawData ALREADY has normalized coordinates (0..1).
-                                        // So we just need to keep them as 0..1 and scale in the UI.
                                         moveTo(data.fromX, data.fromY)
                                     }
                                     newCurrentRemotePath = RemotePathData(path, Color(data.color), data.thickness)
                                 }
                                 MotionEvent.ACTION_MOVE -> {
-                                    newCurrentRemotePath?.path?.lineTo(data.toX, data.toY)
+                                    if (newCurrentRemotePath == null) {
+                                        val path = Path().apply {
+                                            moveTo(data.fromX, data.fromY)
+                                        }
+                                        newCurrentRemotePath = RemotePathData(path, Color(data.color), data.thickness)
+                                    }
+                                    
+                                    // Create a NEW path instance to force Compose to detect the change
+                                    val newPath = Path()
+                                    newPath.addPath(newCurrentRemotePath.path)
+                                    newPath.quadraticTo(
+                                        data.fromX, 
+                                        data.fromY, 
+                                        (data.fromX + data.toX) / 2f, 
+                                        (data.fromY + data.toY) / 2f
+                                    )
+                                    
+                                    newCurrentRemotePath = newCurrentRemotePath.copy(path = newPath)
                                 }
                                 MotionEvent.ACTION_UP -> {
-                                    newCurrentRemotePath?.let {
-                                        newRemoteStrokes = newRemoteStrokes + it
+                                    newCurrentRemotePath?.let { remotePath ->
+                                        // Finalize the path
+                                        val finalPath = Path()
+                                        finalPath.addPath(remotePath.path)
+                                        finalPath.lineTo(data.fromX, data.fromY)
+                                        newRemoteStrokes = newRemoteStrokes + remotePath.copy(path = finalPath)
                                     }
                                     newCurrentRemotePath = null
                                 }
@@ -121,6 +154,12 @@ class DrawingViewModel @Inject constructor(
                         }
                     }
                     is DrawAction -> {
+                        // Echo suppression: if we're the drawer, we already
+                        // handled undo/clear locally — ignore our own echoes.
+                        val currentState = _uiState.value
+                        if (currentState.isUserDrawing && currentState.drawingPlayer == username) {
+                            return@onEach
+                        }
                         when (data.action) {
                             ACTION_UNDO -> {
                                 _uiState.update { it.copy(
@@ -128,7 +167,7 @@ class DrawingViewModel @Inject constructor(
                                 ) }
                             }
                             DrawAction.ACTION_CLEAR -> {
-                                _uiState.update { it.copy(remoteStrokes = emptyList(), strokes = emptyList()) }
+                                _uiState.update { it.copy(remoteStrokes = emptyList()) }
                             }
                         }
                     }
@@ -153,12 +192,15 @@ class DrawingViewModel @Inject constructor(
                         _uiState.update { it.copy(players = data.players) }
                     }
                     is PhaseChange -> {
-                        _uiState.update { it.copy(
-                            phase = data.phase,
-                            time = data.time,
-                            drawingPlayer = data.drawingPlayer,
-                            isUserDrawing = data.drawingPlayer == username
+                        _uiState.update { state ->
+                            val newDrawingPlayer = data.drawingPlayer
+                            val newState = state.copy(
+                                phase = data.phase,
+                                time = data.time,
+                                drawingPlayer = if (newDrawingPlayer.isBlank()) state.drawingPlayer else newDrawingPlayer,
+                                isUserDrawing = newDrawingPlayer == username
                             )
+                            newState
                         }
                     }
                     is NewWords -> {
@@ -211,12 +253,32 @@ class DrawingViewModel @Inject constructor(
                 it.copy(strokes = it.strokes.dropLast(1))
             } else it
         }
-        sendBaseModel(DrawAction(ACTION_UNDO))
+        val drawData = DrawData(
+            roomName = roomName,
+            color = 0,
+            thickness = 0f,
+            fromX = 0f,
+            fromY = 0f,
+            toX = 0f,
+            toY = 0f,
+            motionEvent = DrawData.MOTION_EVENT_UNDO
+        )
+        sendBaseModel(drawData)
     }
 
     fun clear() {
         _uiState.update { it.copy(strokes = emptyList()) }
-        sendBaseModel(DrawAction(DrawAction.ACTION_CLEAR))
+        val drawData = DrawData(
+            roomName = roomName,
+            color = 0,
+            thickness = 0f,
+            fromX = 0f,
+            fromY = 0f,
+            toX = 0f,
+            toY = 0f,
+            motionEvent = DrawData.MOTION_EVENT_CLEAR
+        )
+        sendBaseModel(drawData)
     }
 
     override fun onCleared() {
