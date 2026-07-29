@@ -281,6 +281,16 @@ class DrawingViewModel @Inject constructor(
         sendBaseModel(drawData)
     }
 
+    fun sendMessage(message: String) {
+        val chatMessage = ChatMessage(
+            from = username,
+            roomName = roomName,
+            message = message,
+            timestamp = System.currentTimeMillis()
+        )
+        sendBaseModel(chatMessage)
+    }
+
     override fun onCleared() {
         drawingApi.disconnect()
     }

@@ -49,7 +49,9 @@ fun IconRadioButton(
     icon: ImageVector,
     isSelected: Boolean,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    unselectedTint: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    selectedTint: Color = MaterialTheme.colorScheme.onPrimaryContainer
 ) {
     val scale by animateFloatAsState(targetValue = if (isSelected) 1.2f else 1f, label = "scale")
     
@@ -66,7 +68,7 @@ fun IconRadioButton(
         Icon(
             imageVector = icon,
             contentDescription = null,
-            tint = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+            tint = if (isSelected) selectedTint else unselectedTint
         )
     }
 }

@@ -28,21 +28,29 @@ import com.doodlefrens.designsystem.components.Orange
 import com.doodlefrens.designsystem.components.Red
 import com.doodlefrens.designsystem.components.White
 import com.doodlefrens.designsystem.components.Yellow
+import com.doodlefrens.data.remote.ws.models.Announcement
+import com.doodlefrens.data.remote.ws.models.BaseModel
+import com.doodlefrens.data.remote.ws.models.ChatMessage
+import java.text.SimpleDateFormat
+import java.util.Locale
 
 @Composable
 fun AnnouncementItem(
     message: String,
-    time: String
+    time: String,
+    backgroundColor: Color = Yellow,
+    textColor: Color = Black
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Yellow)
+            .background(backgroundColor)
             .padding(8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
             text = message,
+            color = textColor,
             modifier = Modifier
                 .weight(1f)
                 .padding(horizontal = 8.dp),
@@ -50,6 +58,7 @@ fun AnnouncementItem(
         )
         Text(
             text = time,
+            color = textColor,
             modifier = Modifier.padding(end = 16.dp),
             fontSize = 20.sp,
             style = MaterialTheme.typography.bodySmall
@@ -79,6 +88,9 @@ fun ChatMessageItem(
             )
         }
 
+        val bubbleColor = if (isOutgoing) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
+        val textColor = if (isOutgoing) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+
         Column(
             modifier = Modifier
                 .widthIn(max = 280.dp)
@@ -90,17 +102,19 @@ fun ChatMessageItem(
                         bottomEnd = if (isOutgoing) 0.dp else 16.dp
                     )
                 )
-                .background(if (isOutgoing) Color(0xFFE3F2FD) else LightGrey)
+                .background(bubbleColor)
                 .padding(16.dp)
         ) {
             Text(
                 text = username,
+                color = textColor,
                 fontWeight = FontWeight.Bold,
                 style = MaterialTheme.typography.bodyMedium
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = message,
+                color = textColor,
                 style = MaterialTheme.typography.bodyMedium
             )
         }
@@ -188,9 +202,12 @@ fun PlayersSection(onClose: () -> Unit) {
 
 @Composable
 fun ChatSection(
+    username: String,
     roomName: String,
+    messages: List<BaseModel>,
     messageText: String,
     onMessageChange: (String) -> Unit,
+    onSendMessage: () -> Unit,
     onClose: () -> Unit
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
@@ -226,14 +243,42 @@ fun ChatSection(
             modifier = Modifier.weight(1f),
             contentPadding = PaddingValues(8.dp)
         ) {
-            item { AnnouncementItem(message = "Welcome to the room!", time = "12:00") }
-            items(10) { index ->
-                ChatMessageItem(
-                    username = "User $index",
-                    message = "Test message $index",
-                    time = "12:0$index",
-                    isOutgoing = index % 2 == 0
-                )
+            items(messages.size) { index ->
+                val message = messages[index]
+                if (message is Announcement) {
+                    val dateFormat = SimpleDateFormat("kk:mm:ss", Locale.getDefault())
+                    val time = dateFormat.format(message.timestamp)
+                    
+                    val backgroundColor = when (message.announcementType) {
+                        Announcement.TYPE_EVERYBODY_GUESSED_IT -> LightGrey
+                        Announcement.TYPE_PLAYER_GUESSED_WORD -> Yellow
+                        Announcement.TYPE_PLAYER_JOINED -> Green
+                        Announcement.TYPE_PLAYER_LEFT -> Red
+                        else -> LightGrey
+                    }
+                    val textColor = when (message.announcementType) {
+                        Announcement.TYPE_PLAYER_LEFT -> White
+                        else -> Black
+                    }
+
+                    AnnouncementItem(
+                        message = message.message,
+                        time = time,
+                        backgroundColor = backgroundColor,
+                        textColor = textColor
+                    )
+                } else if (message is ChatMessage) {
+                    val dateFormat = SimpleDateFormat("kk:mm:ss", Locale.getDefault())
+                    val time = dateFormat.format(message.timestamp)
+                    val isOutgoing = message.from == username
+
+                    ChatMessageItem(
+                        username = message.from,
+                        message = message.message,
+                        time = time,
+                        isOutgoing = isOutgoing
+                    )
+                }
             }
         }
 
@@ -241,7 +286,7 @@ fun ChatSection(
         MessageInput(
             messageText = messageText,
             onMessageChange = onMessageChange,
-            onSendMessage = { },
+            onSendMessage = onSendMessage,
             onClearText = { onMessageChange("") }
         )
         // Add padding for bottom sheet drag handle / system bars
@@ -282,7 +327,8 @@ fun ColorPicker(
         IconRadioButton(
             icon = Icons.Default.CleaningServices,
             isSelected = isEraser,
-            onClick = onEraserSelected
+            onClick = onEraserSelected,
+            unselectedTint = Black
         )
     }
 }
