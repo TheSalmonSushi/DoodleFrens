@@ -36,6 +36,8 @@ import com.doodlefrens.designsystem.components.Yellow
 import com.doodlefrens.data.remote.ws.models.Announcement
 import com.doodlefrens.data.remote.ws.models.BaseModel
 import com.doodlefrens.data.remote.ws.models.ChatMessage
+import com.doodlefrens.data.remote.ws.models.PlayerData
+
 import java.text.SimpleDateFormat
 import androidx.compose.ui.platform.LocalLocale
 
@@ -176,7 +178,10 @@ fun PlayerItem(
 }
 
 @Composable
-fun PlayersSection(onClose: () -> Unit) {
+fun PlayersSection(
+    players: List<PlayerData>,
+    onClose: () -> Unit
+) {
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(8.dp),
@@ -193,12 +198,13 @@ fun PlayersSection(onClose: () -> Unit) {
         }
         HorizontalDivider()
         LazyColumn(modifier = Modifier.fillMaxSize()) {
-            items(10) { index ->
+            items(players.size) { index ->
+                val player = players[index]
                 PlayerItem(
-                    rank = index + 1,
-                    username = "Player $index",
-                    score = 100 * (10 - index),
-                    isDrawing = index == 0
+                    rank = player.rank,
+                    username = player.username,
+                    score = player.score,
+                    isDrawing = player.isDrawing
                 )
             }
         }
