@@ -49,4 +49,6 @@
     <string name="listening">Listening...</string>
     <string name="error_unknown">Unknown Error</string>
     <string name="create">Create</string>
+    <string name="guess_the_word">Guess the word!</string>
+    <string name="round_over">Round over!</string>
 </resources>

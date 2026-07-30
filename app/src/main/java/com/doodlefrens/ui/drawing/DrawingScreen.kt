@@ -300,16 +300,23 @@ fun DrawingScreen(
 
                 // Layer 1: Floating Tools & Sidebar
                 Column(modifier = Modifier.fillMaxSize()) {
+                    val timerProgress = if (uiState.phaseTimerMax > 0L) {
+                        uiState.phaseTime.toFloat() / uiState.phaseTimerMax.toFloat()
+                    } else 1f
+
                     LinearProgressIndicator(
-                        progress = { 1f },
+                        progress = { timerProgress },
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(8.dp)
                     )
 
-                    if (!uiState.word.isNullOrEmpty()) {
+                    // Show statusText (phase label) or the current word, whichever is available
+                    val displayText = uiState.word?.takeIf { it.isNotBlank() }
+                        ?: uiState.statusText
+                    if (!displayText.isNullOrEmpty()) {
                         Text(
-                            text = uiState.word!!,
+                            text = displayText,
                             fontSize = 24.sp,
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier
@@ -394,6 +401,7 @@ fun DrawingScreen(
                 if (uiState.newWords.isNotEmpty()) {
                     ChooseWordOverlay(
                         words = uiState.newWords,
+                        timerSeconds = (uiState.phaseTime / 1000L).toInt(),
                         onWordClicked = viewModel::chooseWord
                     )
                 }

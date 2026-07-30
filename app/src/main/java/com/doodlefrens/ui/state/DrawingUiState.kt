@@ -15,8 +15,13 @@ data class DrawingUiState(
     val players: List<PlayerData> = emptyList(),
     val phase: Room.Phase? = null,
     val time: Long = 0L,
+    // Countdown timer state driven by CoroutineTimer
+    val phaseTime: Long = 0L,
+    val phaseTimerMax: Long = 0L,
     val drawingPlayer: String? = null,
     val word: String? = null,
+    // Status label shown in the top bar (e.g. "Waiting for players", "Dzikri is drawing…")
+    val statusText: String? = null,
     val newWords: List<String> = emptyList(),
     val connectionError: String? = null,
     val isConnected: Boolean = false,
