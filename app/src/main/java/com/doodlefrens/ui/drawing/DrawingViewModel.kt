@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import timber.log.Timber
 import javax.inject.Inject
 import javax.inject.Named
 
@@ -94,6 +95,7 @@ class DrawingViewModel @Inject constructor(
         drawingApi.events.onEach { event ->
                 when (event) {
                     is DrawingApi.WebSocketEvent.OnConnectionOpened -> {
+                        Timber.d("DrawingVM: WebSocket OPENED")
                         _uiState.update {
                             it.copy(
                                 isConnected = true, connectionError = null, isConnecting = false
@@ -103,6 +105,7 @@ class DrawingViewModel @Inject constructor(
                     }
 
                     is DrawingApi.WebSocketEvent.OnConnectionError -> {
+                        Timber.e("DrawingVM: WebSocket ERROR: ${event.error.message}")
                         _uiState.update {
                             it.copy(
                                 isConnected = false,
@@ -113,6 +116,7 @@ class DrawingViewModel @Inject constructor(
                     }
 
                     is DrawingApi.WebSocketEvent.OnConnectionClosed -> {
+                        Timber.w("DrawingVM: WebSocket CLOSED")
                         _uiState.update { it.copy(isConnected = false, isConnecting = false) }
                     }
                 }
@@ -121,6 +125,7 @@ class DrawingViewModel @Inject constructor(
 
     private fun observeBaseModels() {
         drawingApi.observeMessages().onEach { data ->
+                Timber.d("DrawingVM: Received ${data::class.simpleName}: $data")
                 when (data) {
                     is DrawData -> {
                         _uiState.update { state ->
@@ -147,7 +152,9 @@ class DrawingViewModel @Inject constructor(
 
                                 DrawData.MOTION_EVENT_CLEAR -> {
                                     // Hack: -2 means CLEAR
+                                    // Wipe both finished and any in-progress remote stroke
                                     newRemoteStrokes = emptyList()
+                                    newCurrentRemotePath = null
                                 }
 
                                 MotionEvent.ACTION_DOWN -> {
@@ -218,7 +225,13 @@ class DrawingViewModel @Inject constructor(
                             }
 
                             DrawAction.ACTION_CLEAR -> {
-                                _uiState.update { it.copy(remoteStrokes = emptyList()) }
+                                // Wipe both finished and any in-progress remote stroke
+                                _uiState.update {
+                                    it.copy(
+                                        remoteStrokes = emptyList(),
+                                        currentRemotePath = null
+                                    )
+                                }
                             }
                         }
                     }
@@ -238,7 +251,11 @@ class DrawingViewModel @Inject constructor(
                             it.copy(
                                 drawingPlayer = data.drawingPlayer,
                                 word = data.word,
-                                isUserDrawing = data.drawingPlayer == username
+                                isUserDrawing = data.drawingPlayer == username,
+                                // Clear the canvas for every new game state (new round start)
+                                strokes = emptyList(),
+                                remoteStrokes = emptyList(),
+                                currentRemotePath = null
                             )
                         }
                         socketEventChannel.send(SocketEvent.GameStateEvent(data))
@@ -249,50 +266,66 @@ class DrawingViewModel @Inject constructor(
                     }
 
                     is PhaseChange -> {
-                        // Cancel timer for phases that don't run it client-side
-                        if (data.phase == Room.Phase.WAITING_FOR_PLAYERS) {
-                            cancelTimer()
+                        val incomingPhase = data.phase
+                        Timber.d("DrawingVM: PhaseChange phase=$incomingPhase time=${data.time} drawingPlayer=${data.drawingPlayer}")
+
+                        if (incomingPhase == null) {
+                            // Timer-only tick — just update the countdown
+                            _uiState.update { it.copy(time = data.time) }
                         } else {
-                            startTimer(data.time)
-                        }
-
-                        _uiState.update { state ->
-                            val newDrawingPlayer = data.drawingPlayer
-                            val resolvedDrawingPlayer =
-                                newDrawingPlayer.ifBlank { state.drawingPlayer }
-
-                            val isUserDrawer = resolvedDrawingPlayer == username
-
-                            // Build a human-readable status label for the top bar
-                            val statusText = when (data.phase) {
-                                Room.Phase.WAITING_FOR_PLAYERS ->
-                                    context.getString(R.string.waiting_for_players)
-                                Room.Phase.WAITING_FOR_START ->
-                                    context.getString(R.string.waiting_for_start)
-                                Room.Phase.NEW_ROUND ->
-                                    if (resolvedDrawingPlayer != null)
-                                        context.getString(R.string.player_is_drawing, resolvedDrawingPlayer)
-                                    else
-                                        context.getString(R.string.waiting_for_start)
-                                Room.Phase.GAME_RUNNING ->
-                                    state.word ?: context.getString(R.string.guess_the_word)
-                                Room.Phase.SHOW_WORD ->
-                                    context.getString(R.string.round_over)
+                            // Full phase change
+                            if (incomingPhase == Room.Phase.WAITING_FOR_PLAYERS) {
+                                cancelTimer()
+                            } else {
+                                startTimer(data.time)
                             }
 
-                            state.copy(
-                                phase = data.phase,
-                                time = data.time,
-                                phaseTimerMax = data.time,
-                                drawingPlayer = resolvedDrawingPlayer,
-                                // Only the assigned drawing player can draw during NEW_ROUND/GAME_RUNNING
-                                isUserDrawing = isUserDrawer && (data.phase == Room.Phase.NEW_ROUND || data.phase == Room.Phase.GAME_RUNNING),
-                                statusText = statusText
-                            )
+                            _uiState.update { state ->
+                                val newDrawingPlayer = data.drawingPlayer
+                                val resolvedDrawingPlayer =
+                                    newDrawingPlayer ?: state.drawingPlayer
+
+                                val isUserDrawer = resolvedDrawingPlayer == username
+
+                                // Build a human-readable status label for the top bar
+                                val statusText = when (incomingPhase) {
+                                    Room.Phase.WAITING_FOR_PLAYERS ->
+                                        context.getString(R.string.waiting_for_players)
+                                    Room.Phase.WAITING_FOR_START ->
+                                        context.getString(R.string.waiting_for_start)
+                                    Room.Phase.NEW_ROUND ->
+                                        if (resolvedDrawingPlayer != null)
+                                            context.getString(R.string.player_is_drawing, resolvedDrawingPlayer)
+                                        else
+                                            context.getString(R.string.waiting_for_start)
+                                    Room.Phase.GAME_RUNNING ->
+                                        state.word ?: context.getString(R.string.guess_the_word)
+                                    Room.Phase.SHOW_WORD ->
+                                        context.getString(R.string.round_over)
+                                }
+
+                                // For SHOW_WORD: clear any dangling mid-stroke from a remote player.
+                                // This is the Compose equivalent of the tutorial's finishOffDrawing() —
+                                // since InProgressStrokes (local) self-cancels when it leaves composition,
+                                // we only need to manually clean up the remote currentRemotePath here.
+                                val clearRemotePath = incomingPhase == Room.Phase.SHOW_WORD
+
+                                state.copy(
+                                    phase = incomingPhase,
+                                    time = data.time,
+                                    phaseTimerMax = data.time,
+                                    drawingPlayer = resolvedDrawingPlayer,
+                                    // Only the assigned drawing player can draw during NEW_ROUND/GAME_RUNNING
+                                    isUserDrawing = isUserDrawer && (incomingPhase == Room.Phase.NEW_ROUND || incomingPhase == Room.Phase.GAME_RUNNING),
+                                    statusText = statusText,
+                                    currentRemotePath = if (clearRemotePath) null else state.currentRemotePath
+                                )
+                            }
                         }
                     }
 
                     is NewWords -> {
+                        Timber.d("DrawingVM: NewWords received! words=${data.newWords}")
                         _uiState.update { it.copy(newWords = data.newWords) }
                         socketEventChannel.send(SocketEvent.NewWordsEvent(data))
                     }
