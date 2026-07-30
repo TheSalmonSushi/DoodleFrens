@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
 import timber.log.Timber
 import javax.inject.Inject
 import javax.inject.Named
@@ -38,6 +39,7 @@ import javax.inject.Named
 class DrawingViewModel @Inject constructor(
     private val drawingApi: DrawingApi,
     private val dispatchers: DispatcherProvider,
+    private val json: Json,
     @param:Named("clientId") private val clientId: String,
     @param:ApplicationContext private val context: Context,
     savedStateHandle: SavedStateHandle
@@ -95,7 +97,6 @@ class DrawingViewModel @Inject constructor(
         drawingApi.events.onEach { event ->
                 when (event) {
                     is DrawingApi.WebSocketEvent.OnConnectionOpened -> {
-                        Timber.d("DrawingVM: WebSocket OPENED")
                         _uiState.update {
                             it.copy(
                                 isConnected = true, connectionError = null, isConnecting = false
@@ -125,115 +126,36 @@ class DrawingViewModel @Inject constructor(
 
     private fun observeBaseModels() {
         drawingApi.observeMessages().onEach { data ->
-                Timber.d("DrawingVM: Received ${data::class.simpleName}: $data")
                 when (data) {
-                    is DrawData -> {
-                        _uiState.update { state ->
-                            // Echo suppression logic:
-                            // We only skip drawing incoming data if WE are the one who sent it.
-                            // We determine if we sent it based on the 'isUserDrawing' flag.
-                            // BUT, we only do this if a specific player is assigned to draw, 
-                            // or if we are using the 'test' override.
-                            if (state.isUserDrawing && state.drawingPlayer == username) {
-                                return@update state
+                    is RoundDrawInfo -> {
+                        val drawActions = data.data.mapNotNull { jsonString ->
+                            try {
+                                json.decodeFromString<BaseModel>(jsonString)
+                            } catch (e: Exception) {
+                                Timber.e(e, "Failed to decode RoundDrawInfo element: $jsonString")
+                                null
                             }
-
-                            var newRemoteStrokes = state.remoteStrokes
-                            var newCurrentRemotePath = state.currentRemotePath
-
-                            when (data.motionEvent) {
-                                DrawData.MOTION_EVENT_UNDO -> {
-                                    // Hack: -1 means UNDO
-                                    newRemoteStrokes =
-                                        if (newRemoteStrokes.isNotEmpty()) newRemoteStrokes.dropLast(
-                                            1
-                                        ) else newRemoteStrokes
-                                }
-
-                                DrawData.MOTION_EVENT_CLEAR -> {
-                                    // Hack: -2 means CLEAR
-                                    // Wipe both finished and any in-progress remote stroke
-                                    newRemoteStrokes = emptyList()
-                                    newCurrentRemotePath = null
-                                }
-
-                                MotionEvent.ACTION_DOWN -> {
-                                    val path = Path().apply {
-                                        moveTo(data.fromX, data.fromY)
-                                    }
-                                    newCurrentRemotePath =
-                                        RemotePathData(path, Color(data.color), data.thickness)
-                                }
-
-                                MotionEvent.ACTION_MOVE -> {
-                                    if (newCurrentRemotePath == null) {
-                                        val path = Path().apply {
-                                            moveTo(data.fromX, data.fromY)
-                                        }
-                                        newCurrentRemotePath =
-                                            RemotePathData(path, Color(data.color), data.thickness)
-                                    }
-
-                                    // Create a NEW path instance to force Compose to detect the change
-                                    val newPath = Path()
-                                    newPath.addPath(newCurrentRemotePath.path)
-                                    newPath.quadraticTo(
-                                        data.fromX,
-                                        data.fromY,
-                                        (data.fromX + data.toX) / 2f,
-                                        (data.fromY + data.toY) / 2f
-                                    )
-
-                                    newCurrentRemotePath = newCurrentRemotePath.copy(path = newPath)
-                                }
-
-                                MotionEvent.ACTION_UP -> {
-                                    newCurrentRemotePath?.let { remotePath ->
-                                        // Finalize the path
-                                        val finalPath = Path()
-                                        finalPath.addPath(remotePath.path)
-                                        finalPath.lineTo(data.fromX, data.fromY)
-                                        newRemoteStrokes =
-                                            newRemoteStrokes + remotePath.copy(path = finalPath)
-                                    }
-                                    newCurrentRemotePath = null
+                        }
+                        
+                        _uiState.update { initialState ->
+                            var currentState = initialState
+                            drawActions.forEach { model ->
+                                when (model) {
+                                    is DrawData -> currentState = processDrawData(currentState, model, isRestoring = true)
+                                    is DrawAction -> currentState = processDrawAction(currentState, model, isRestoring = true)
+                                    else -> Unit
                                 }
                             }
-                            state.copy(
-                                remoteStrokes = newRemoteStrokes,
-                                currentRemotePath = newCurrentRemotePath
-                            )
+                            currentState
                         }
                     }
 
-                    is DrawAction -> {
-                        // Echo suppression: if we're the drawer, we already
-                        // handled undo/clear locally — ignore our own echoes.
-                        val currentState = _uiState.value
-                        if (currentState.isUserDrawing && currentState.drawingPlayer == username) {
-                            return@onEach
-                        }
-                        when (data.action) {
-                            ACTION_UNDO -> {
-                                _uiState.update {
-                                    it.copy(
-                                        remoteStrokes = if (it.remoteStrokes.isNotEmpty()) it.remoteStrokes.dropLast(
-                                            1
-                                        ) else it.remoteStrokes
-                                    )
-                                }
-                            }
+                    is DrawData -> {
+                        _uiState.update { state -> processDrawData(state, data) }
+                    }
 
-                            DrawAction.ACTION_CLEAR -> {
-                                // Wipe both finished and any in-progress remote stroke
-                                _uiState.update {
-                                    it.copy(
-                                        remoteStrokes = emptyList(),
-                                        currentRemotePath = null
-                                    )
-                                }
-                            }
-                        }
+                    is DrawAction -> {
+                        _uiState.update { state -> processDrawAction(state, data) }
                     }
 
                     is ChatMessage -> {
@@ -267,7 +189,6 @@ class DrawingViewModel @Inject constructor(
 
                     is PhaseChange -> {
                         val incomingPhase = data.phase
-                        Timber.d("DrawingVM: PhaseChange phase=$incomingPhase time=${data.time} drawingPlayer=${data.drawingPlayer}")
 
                         if (incomingPhase == null) {
                             // Timer-only tick — just update the countdown
@@ -325,7 +246,6 @@ class DrawingViewModel @Inject constructor(
                     }
 
                     is NewWords -> {
-                        Timber.d("DrawingVM: NewWords received! words=${data.newWords}")
                         _uiState.update { it.copy(newWords = data.newWords) }
                         socketEventChannel.send(SocketEvent.NewWordsEvent(data))
                     }
@@ -379,6 +299,8 @@ class DrawingViewModel @Inject constructor(
         _uiState.update {
             if (it.strokes.isNotEmpty()) {
                 it.copy(strokes = it.strokes.dropLast(1))
+            } else if (it.remoteStrokes.isNotEmpty()) {
+                it.copy(remoteStrokes = it.remoteStrokes.dropLast(1))
             } else it
         }
         val drawData = DrawData(
@@ -395,7 +317,7 @@ class DrawingViewModel @Inject constructor(
     }
 
     fun clear() {
-        _uiState.update { it.copy(strokes = emptyList()) }
+        _uiState.update { it.copy(strokes = emptyList(), remoteStrokes = emptyList(), currentRemotePath = null) }
         val drawData = DrawData(
             roomName = roomName,
             color = 0,
@@ -421,5 +343,78 @@ class DrawingViewModel @Inject constructor(
 
     override fun onCleared() {
         drawingApi.disconnect()
+    }
+
+    private fun processDrawData(state: DrawingUiState, data: DrawData, isRestoring: Boolean = false): DrawingUiState {
+        // Echo suppression logic:
+        if (!isRestoring && state.isUserDrawing && state.drawingPlayer == username) {
+            return state
+        }
+
+        var newRemoteStrokes = state.remoteStrokes
+        var newCurrentRemotePath = state.currentRemotePath
+
+        when (data.motionEvent) {
+            DrawData.MOTION_EVENT_UNDO -> {
+                // Hack: -1 means UNDO
+                newRemoteStrokes = if (newRemoteStrokes.isNotEmpty()) newRemoteStrokes.dropLast(1) else newRemoteStrokes
+            }
+            DrawData.MOTION_EVENT_CLEAR -> {
+                // Hack: -2 means CLEAR
+                // Wipe both finished and any in-progress remote stroke
+                newRemoteStrokes = emptyList()
+                newCurrentRemotePath = null
+            }
+            MotionEvent.ACTION_DOWN -> {
+                val path = Path().apply { moveTo(data.fromX, data.fromY) }
+                newCurrentRemotePath = RemotePathData(path, Color(data.color), data.thickness)
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (newCurrentRemotePath == null) {
+                    val path = Path().apply { moveTo(data.fromX, data.fromY) }
+                    newCurrentRemotePath = RemotePathData(path, Color(data.color), data.thickness)
+                }
+                // Create a NEW path instance to force Compose to detect the change
+                val newPath = Path()
+                newPath.addPath(newCurrentRemotePath.path)
+                newPath.quadraticTo(
+                    data.fromX, data.fromY,
+                    (data.fromX + data.toX) / 2f,
+                    (data.fromY + data.toY) / 2f
+                )
+                newCurrentRemotePath = newCurrentRemotePath.copy(path = newPath)
+            }
+            MotionEvent.ACTION_UP -> {
+                newCurrentRemotePath?.let { remotePath ->
+                    // Finalize the path
+                    val finalPath = Path()
+                    finalPath.addPath(remotePath.path)
+                    finalPath.lineTo(data.fromX, data.fromY)
+                    newRemoteStrokes = newRemoteStrokes + remotePath.copy(path = finalPath)
+                }
+                newCurrentRemotePath = null
+            }
+        }
+        return state.copy(remoteStrokes = newRemoteStrokes, currentRemotePath = newCurrentRemotePath)
+    }
+
+    private fun processDrawAction(state: DrawingUiState, data: DrawAction, isRestoring: Boolean = false): DrawingUiState {
+        if (!isRestoring && state.isUserDrawing && state.drawingPlayer == username) {
+            return state
+        }
+        return when (data.action) {
+            ACTION_UNDO -> {
+                state.copy(
+                    remoteStrokes = if (state.remoteStrokes.isNotEmpty()) state.remoteStrokes.dropLast(1) else state.remoteStrokes
+                )
+            }
+            DrawAction.ACTION_CLEAR -> {
+                state.copy(
+                    remoteStrokes = emptyList(),
+                    currentRemotePath = null
+                )
+            }
+            else -> state
+        }
     }
 }
