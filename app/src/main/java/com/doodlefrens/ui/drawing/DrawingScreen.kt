@@ -125,9 +125,12 @@ fun DrawingScreen(
                 modifier = Modifier.width(if (isLandscape) 400.dp else 300.dp)
             ) {
                 when (currentDrawerContent) {
-                    DrawingDrawerContent.PLAYERS -> PlayersSection(onClose = {
-                        scope.launch { drawerState.close() }
-                    })
+                    DrawingDrawerContent.PLAYERS -> PlayersSection(
+                        players = uiState.players,
+                        onClose = {
+                            scope.launch { drawerState.close() }
+                        }
+                    )
                     DrawingDrawerContent.CHAT -> ChatSection(
                         username = username,
                         roomName = roomName,
