@@ -1,5 +1,6 @@
 package com.doodlefrens.ui.drawing
 
+import android.content.Context
 import android.view.MotionEvent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -7,13 +8,18 @@ import androidx.ink.strokes.Stroke
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.doodlefrens.R
 import com.doodlefrens.data.remote.ws.DrawingApi
+import com.doodlefrens.data.remote.ws.Room
 import com.doodlefrens.data.remote.ws.models.*
 import com.doodlefrens.data.remote.ws.models.DrawAction.Companion.ACTION_UNDO
 import com.doodlefrens.ui.state.DrawingUiState
 import com.doodlefrens.ui.state.RemotePathData
+import com.doodlefrens.util.CoroutineTimer
 import com.doodlefrens.util.DispatcherProvider
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -32,6 +38,7 @@ class DrawingViewModel @Inject constructor(
     private val drawingApi: DrawingApi,
     private val dispatchers: DispatcherProvider,
     @param:Named("clientId") private val clientId: String,
+    @param:ApplicationContext private val context: Context,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
@@ -53,6 +60,24 @@ class DrawingViewModel @Inject constructor(
     private val username = savedStateHandle.get<String>("username") ?: ""
     private val roomName = savedStateHandle.get<String>("roomName") ?: ""
 
+    // --- Timer ---
+    private val timer = CoroutineTimer()
+    private var timerJob: Job? = null
+
+    private fun startTimer(duration: Long) {
+        timerJob?.cancel()
+        timerJob = timer.timeAndEmit(
+            duration = duration, coroutineScope = viewModelScope
+        ) { remaining ->
+            _uiState.update { it.copy(phaseTime = remaining) }
+        }
+    }
+
+    fun cancelTimer() {
+        timerJob?.cancel()
+        timerJob = null
+    }
+
     init {
         connectToRoom()
         observeEvents()
@@ -66,27 +91,36 @@ class DrawingViewModel @Inject constructor(
     }
 
     private fun observeEvents() {
-        drawingApi.events
-            .onEach { event ->
+        drawingApi.events.onEach { event ->
                 when (event) {
                     is DrawingApi.WebSocketEvent.OnConnectionOpened -> {
-                        _uiState.update { it.copy(isConnected = true, connectionError = null, isConnecting = false) }
+                        _uiState.update {
+                            it.copy(
+                                isConnected = true, connectionError = null, isConnecting = false
+                            )
+                        }
                         sendBaseModel(JoinRoomHandshake(username, roomName, clientId))
                     }
+
                     is DrawingApi.WebSocketEvent.OnConnectionError -> {
-                        _uiState.update { it.copy(isConnected = false, connectionError = event.error.message, isConnecting = false) }
+                        _uiState.update {
+                            it.copy(
+                                isConnected = false,
+                                connectionError = event.error.message,
+                                isConnecting = false
+                            )
+                        }
                     }
+
                     is DrawingApi.WebSocketEvent.OnConnectionClosed -> {
                         _uiState.update { it.copy(isConnected = false, isConnecting = false) }
                     }
                 }
-            }
-            .launchIn(viewModelScope)
+            }.launchIn(viewModelScope)
     }
 
     private fun observeBaseModels() {
-        drawingApi.observeMessages()
-            .onEach { data ->
+        drawingApi.observeMessages().onEach { data ->
                 when (data) {
                     is DrawData -> {
                         _uiState.update { state ->
@@ -105,45 +139,55 @@ class DrawingViewModel @Inject constructor(
                             when (data.motionEvent) {
                                 DrawData.MOTION_EVENT_UNDO -> {
                                     // Hack: -1 means UNDO
-                                    newRemoteStrokes = if (newRemoteStrokes.isNotEmpty()) newRemoteStrokes.dropLast(1) else newRemoteStrokes
+                                    newRemoteStrokes =
+                                        if (newRemoteStrokes.isNotEmpty()) newRemoteStrokes.dropLast(
+                                            1
+                                        ) else newRemoteStrokes
                                 }
+
                                 DrawData.MOTION_EVENT_CLEAR -> {
                                     // Hack: -2 means CLEAR
                                     newRemoteStrokes = emptyList()
                                 }
+
                                 MotionEvent.ACTION_DOWN -> {
                                     val path = Path().apply {
                                         moveTo(data.fromX, data.fromY)
                                     }
-                                    newCurrentRemotePath = RemotePathData(path, Color(data.color), data.thickness)
+                                    newCurrentRemotePath =
+                                        RemotePathData(path, Color(data.color), data.thickness)
                                 }
+
                                 MotionEvent.ACTION_MOVE -> {
                                     if (newCurrentRemotePath == null) {
                                         val path = Path().apply {
                                             moveTo(data.fromX, data.fromY)
                                         }
-                                        newCurrentRemotePath = RemotePathData(path, Color(data.color), data.thickness)
+                                        newCurrentRemotePath =
+                                            RemotePathData(path, Color(data.color), data.thickness)
                                     }
-                                    
+
                                     // Create a NEW path instance to force Compose to detect the change
                                     val newPath = Path()
                                     newPath.addPath(newCurrentRemotePath.path)
                                     newPath.quadraticTo(
-                                        data.fromX, 
-                                        data.fromY, 
-                                        (data.fromX + data.toX) / 2f, 
+                                        data.fromX,
+                                        data.fromY,
+                                        (data.fromX + data.toX) / 2f,
                                         (data.fromY + data.toY) / 2f
                                     )
-                                    
+
                                     newCurrentRemotePath = newCurrentRemotePath.copy(path = newPath)
                                 }
+
                                 MotionEvent.ACTION_UP -> {
                                     newCurrentRemotePath?.let { remotePath ->
                                         // Finalize the path
                                         val finalPath = Path()
                                         finalPath.addPath(remotePath.path)
                                         finalPath.lineTo(data.fromX, data.fromY)
-                                        newRemoteStrokes = newRemoteStrokes + remotePath.copy(path = finalPath)
+                                        newRemoteStrokes =
+                                            newRemoteStrokes + remotePath.copy(path = finalPath)
                                     }
                                     newCurrentRemotePath = null
                                 }
@@ -154,6 +198,7 @@ class DrawingViewModel @Inject constructor(
                             )
                         }
                     }
+
                     is DrawAction -> {
                         // Echo suppression: if we're the drawer, we already
                         // handled undo/clear locally — ignore our own echoes.
@@ -163,64 +208,109 @@ class DrawingViewModel @Inject constructor(
                         }
                         when (data.action) {
                             ACTION_UNDO -> {
-                                _uiState.update { it.copy(
-                                    remoteStrokes = if (it.remoteStrokes.isNotEmpty()) it.remoteStrokes.dropLast(1) else it.remoteStrokes
-                                ) }
+                                _uiState.update {
+                                    it.copy(
+                                        remoteStrokes = if (it.remoteStrokes.isNotEmpty()) it.remoteStrokes.dropLast(
+                                            1
+                                        ) else it.remoteStrokes
+                                    )
+                                }
                             }
+
                             DrawAction.ACTION_CLEAR -> {
                                 _uiState.update { it.copy(remoteStrokes = emptyList()) }
                             }
                         }
                     }
+
                     is ChatMessage -> {
                         _uiState.update { it.copy(messages = it.messages + data) }
                         socketEventChannel.send(SocketEvent.ChatMessageEvent(data))
                     }
+
                     is Announcement -> {
                         _uiState.update { it.copy(messages = it.messages + data) }
                         socketEventChannel.send(SocketEvent.AnnouncementEvent(data))
                     }
+
                     is GameState -> {
-                        _uiState.update { it.copy(
-                            drawingPlayer = data.drawingPlayer,
-                            word = data.word,
-                            isUserDrawing = data.drawingPlayer == username
+                        _uiState.update {
+                            it.copy(
+                                drawingPlayer = data.drawingPlayer,
+                                word = data.word,
+                                isUserDrawing = data.drawingPlayer == username
                             )
                         }
                         socketEventChannel.send(SocketEvent.GameStateEvent(data))
                     }
+
                     is PlayersList -> {
                         _uiState.update { it.copy(players = data.players) }
                     }
+
                     is PhaseChange -> {
+                        // Cancel timer for phases that don't run it client-side
+                        if (data.phase == Room.Phase.WAITING_FOR_PLAYERS) {
+                            cancelTimer()
+                        } else {
+                            startTimer(data.time)
+                        }
+
                         _uiState.update { state ->
                             val newDrawingPlayer = data.drawingPlayer
-                            val newState = state.copy(
+                            val resolvedDrawingPlayer =
+                                newDrawingPlayer.ifBlank { state.drawingPlayer }
+
+                            val isUserDrawer = resolvedDrawingPlayer == username
+
+                            // Build a human-readable status label for the top bar
+                            val statusText = when (data.phase) {
+                                Room.Phase.WAITING_FOR_PLAYERS ->
+                                    context.getString(R.string.waiting_for_players)
+                                Room.Phase.WAITING_FOR_START ->
+                                    context.getString(R.string.waiting_for_start)
+                                Room.Phase.NEW_ROUND ->
+                                    if (resolvedDrawingPlayer != null)
+                                        context.getString(R.string.player_is_drawing, resolvedDrawingPlayer)
+                                    else
+                                        context.getString(R.string.waiting_for_start)
+                                Room.Phase.GAME_RUNNING ->
+                                    state.word ?: context.getString(R.string.guess_the_word)
+                                Room.Phase.SHOW_WORD ->
+                                    context.getString(R.string.round_over)
+                            }
+
+                            state.copy(
                                 phase = data.phase,
                                 time = data.time,
-                                drawingPlayer = if (newDrawingPlayer.isBlank()) state.drawingPlayer else newDrawingPlayer,
-                                isUserDrawing = newDrawingPlayer == username
+                                phaseTimerMax = data.time,
+                                drawingPlayer = resolvedDrawingPlayer,
+                                // Only the assigned drawing player can draw during NEW_ROUND/GAME_RUNNING
+                                isUserDrawing = isUserDrawer && (data.phase == Room.Phase.NEW_ROUND || data.phase == Room.Phase.GAME_RUNNING),
+                                statusText = statusText
                             )
-                            newState
                         }
                     }
+
                     is NewWords -> {
                         _uiState.update { it.copy(newWords = data.newWords) }
                         socketEventChannel.send(SocketEvent.NewWordsEvent(data))
                     }
+
                     is ChosenWord -> {
                         _uiState.update { it.copy(word = data.chosenWord) }
                         socketEventChannel.send(SocketEvent.ChosenWordEvent(data))
                     }
+
                     is Ping -> sendBaseModel(Ping())
                     is GameError -> {
                         _uiState.update { it.copy(connectionError = "Error: ${data.errorType}") }
                         socketEventChannel.send(SocketEvent.GameErrorEvent(data))
                     }
+
                     else -> Unit
                 }
-            }
-            .launchIn(viewModelScope)
+            }.launchIn(viewModelScope)
     }
 
     fun sendBaseModel(baseModel: BaseModel) {

@@ -405,6 +405,7 @@ fun MessageInput(
 @Composable
 fun ChooseWordOverlay(
     words: List<String>,
+    timerSeconds: Int,
     onWordClicked: (String) -> Unit
 ) {
     Box(
@@ -438,7 +439,7 @@ fun ChooseWordOverlay(
             }
             Spacer(modifier = Modifier.height(24.dp))
             Text(
-                text = "30",
+                text = timerSeconds.toString(),
                 style = MaterialTheme.typography.displayLarge,
                 color = White
             )
